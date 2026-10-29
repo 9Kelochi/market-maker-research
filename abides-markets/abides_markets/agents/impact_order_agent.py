@@ -173,10 +173,13 @@ class ImpactOrderAgent(TradingAgent):
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def kernel_starting(self, start_time: NanosecondTime) -> None:
-        super().kernel_starting(start_time)
-        # Schedule the first (and typically only) wakeup at order_time.
-        self.set_wakeup(self.order_time)
+    def get_wake_frequency(self) -> int:
+        # Schedule wakeup at the configured shock time.
+        if self.mkt_open is None:
+            return 0
+
+        return max(0, int(self.order_time - self.mkt_open))
+
 
     def kernel_stopping(self) -> None:
         super().kernel_stopping()
