@@ -185,3 +185,8 @@ cython_debug/
 .AppleDouble
 .LSOverride
 .git-backup-pre-v0.1.0/
+
+# Generated research models and local PowerShell cache
+/models/
+/ppo_daily_investor_smoke_test.zip
+/Microsoft/
