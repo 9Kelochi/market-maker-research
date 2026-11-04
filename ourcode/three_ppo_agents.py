@@ -1,13 +1,10 @@
-"""Stage 1 of independent multi-agent market-making research.
-
+"""
 Train 3 distinct single-agent PPO policies, then evaluate all 3 inside ONE
 shared ABIDES-NG limit-order-book simulation.
-
 This is a shared-market evaluation smoke test, NOT joint-market IPPO training.
 Run from the ABIDES-NG repo root:
-    uv run --with stable-baselines3 python ourcode/three_ppo_agents.py
 
-Requires ourcode/train_market_maker_ppo.py from the previous working stage.
+uv run --with stable-baselines3 python ourcode/three_ppo_agents.py
 """
 from collections import Counter
 from copy import deepcopy
