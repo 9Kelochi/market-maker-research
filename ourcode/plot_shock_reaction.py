@@ -26,7 +26,10 @@ def main():
 
     #Spread (observer) per condition
     obs = df[df.who == "OBSERVER"].copy()
-    obs["spread_cents"] = pd.to_numeric(obs.spread_cents, errors="coerce")
+    obs["spread_cents"] = pd.to_numeric(
+    obs["spread_raw_cents"],
+    errors="coerce",
+    )
     obs["bin"] = (obs.sim_time_s // BIN) * BIN / 60
     styles = {("passive", 0): ("tab:gray", "-"), ("passive", 1): ("tab:gray", "--"),
               ("ppo", 0): ("tab:blue", "-"), ("ppo", 1): ("tab:red", "--")}
