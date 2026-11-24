@@ -33,6 +33,7 @@ from abides_gym.experimental_agents.financial_gym_agent import FinancialGymAgent
 from abides_markets.configs import rmsc04
 from abides_markets.utils import config_add_agents
 
+import config as C
 from train_market_maker_ppo import MarketMakingEnv
 
 
@@ -134,10 +135,7 @@ def build_simulation(seed):
     """Reuse the same short-market configuration as the shared-IPPO trainer."""
     config = rmsc04.build_config(
         seed=seed,
-        end_time="09:45:00",
-        num_noise_agents=100,
-        num_value_agents=20,
-        num_momentum_agents=4,
+        end_time=C.END_TIME,  # same full rmsc04 market as evaluate_agents.py
         book_logging=False,
         log_orders=False,
     )
@@ -174,7 +172,7 @@ def build_simulation(seed):
     return kernel, agents
 
 
-def play_episode(model, seed):
+def play_episode(model, seed, reward_mode="team"):
     """Sample on-policy transitions from three agents sharing one order book."""
     kernel, agents = build_simulation(seed)
     adapters = [MarketMakingEnv() for _ in agents]
@@ -185,6 +183,7 @@ def play_episode(model, seed):
     actions_taken = Counter()
     samples = []
     final_price = None
+    scale = REWARD_SCALE if reward_mode == "team" else REWARD_SCALE / N_AGENTS
 
     kernel.initialize()
     try:
@@ -207,7 +206,8 @@ def play_episode(model, seed):
             price_now = last_trade_price(raw_state)
             if price_now is None:
                 raise RuntimeError("No recent trade price in ABIDES market data")
-            wealth_before = team_wealth(agents, price_now)
+            scope = agents if reward_mode == "team" else [agents[index]]
+            wealth_before = team_wealth(scope, price_now)
 
             action, log_prob, value = model.choose_action(observation, global_state)
             commands = adapter._map_action_space_to_ABIDES_SIMULATOR_SPACE(action)
@@ -221,11 +221,12 @@ def play_episode(model, seed):
                 price_after = last_trade_price(next_event["result"]["raw_state"])
                 if price_after is None:
                     price_after = price_now
-            wealth_after = team_wealth(agents, price_after)
+            wealth_after = team_wealth(scope, price_after)
             final_price = price_after
 
-            # All three agents receive the SAME economic objective.
-            reward = (wealth_after - wealth_before) / REWARD_SCALE
+            # reward_mode=team: all agents get the SAME team objective.
+            # reward_mode=individual: each agent gets its own account change (ablation).
+            reward = (wealth_after - wealth_before) / scale
             samples.append({
                 "local": observation.copy(),
                 "central": global_state.copy(),
@@ -299,6 +300,10 @@ def main():
     parser.add_argument("--episodes", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--reward-mode", choices=["team", "individual"], default="team",
+                        help="team = shared team P&L (MAPPO); individual = own P&L (ablation with the same shared actor)")
+    parser.add_argument("--out", type=Path, default=MODEL_PATH, help="checkpoint path")
+    parser.add_argument("--log", type=Path, default=None, help="CSV of per-episode stats (learning curve)")
     args = parser.parse_args()
     if args.episodes < 1 or args.epochs < 1:
         parser.error("episodes and epochs must be positive")
@@ -308,13 +313,17 @@ def main():
     model = SharedActorCentralCritic()
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    log_rows = []
     print("Training 3 cooperative PPO actors with one centralized critic")
     for episode in range(args.episodes):
         # Keep policy fixed while collecting each episode (on-policy PPO).
-        samples, actions, pnl = play_episode(model, args.seed + episode)
+        samples, actions, pnl = play_episode(model, args.seed + episode, args.reward_mode)
         generalized_advantages(samples)
         loss = ppo_update(model, optimizer, samples, epochs=args.epochs)
+        log_rows.append({"episode": episode + 1, "decisions": len(samples), "team_pnl_dollars": pnl,
+                         "loss": loss, "mean_reward": float(np.mean([x["reward"] for x in samples])),
+                         "reward_mode": args.reward_mode, **{f"n_{k}": v for k, v in actions.items()}})
         print(
             f"Episode {episode + 1}/{args.episodes} | "
             f"decisions={len(samples)} | team_PnL=${pnl:.2f} | "
@@ -332,8 +341,14 @@ def main():
         "prototype": True,
         "training_episodes": args.episodes,
         "seed": args.seed,
-    }, MODEL_PATH)
-    print(f"\nSaved cooperative MAPPO-style prototype: {MODEL_PATH}")
+        "reward_mode": args.reward_mode,
+    }, args.out)
+    if args.log:
+        import pandas as pd
+        args.log.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(log_rows).to_csv(args.log, index=False)
+        print(f"Wrote training log: {args.log}")
+    print(f"\nSaved cooperative MAPPO-style prototype: {args.out}")
     print("This is a training smoke test, not evidence of strategy quality.")
 
 

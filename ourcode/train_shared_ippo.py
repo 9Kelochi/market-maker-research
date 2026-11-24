@@ -25,6 +25,7 @@ from abides_gym.experimental_agents.financial_gym_agent import FinancialGymAgent
 from abides_markets.configs import rmsc04
 from abides_markets.utils import config_add_agents
 
+import config as C
 from train_market_maker_ppo import MarketMakingEnv
 
 
@@ -63,8 +64,10 @@ class SharedMarketTrainingEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, learner_index, peer_model_paths):
+    def __init__(self, learner_index, peer_model_paths, seed=None):
         super().__init__()
+        if seed is not None:
+            self._np_random, _ = gym.utils.seeding.np_random(seed)
         if learner_index not in range(N_AGENTS):
             raise ValueError("learner_index must be 0, 1, or 2")
 
@@ -105,10 +108,7 @@ class SharedMarketTrainingEnv(gym.Env):
 
         config = rmsc04.build_config(
             seed=self.episode_seed,
-            end_time="09:45:00",
-            num_noise_agents=100,
-            num_value_agents=20,
-            num_momentum_agents=4,
+            end_time=C.END_TIME,  # same market as evaluate_agents.py (full rmsc04 template)
             book_logging=False,
             log_orders=False,
         )
@@ -252,7 +252,7 @@ def main():
                 for i in range(N_AGENTS)
                 if i != learner_index
             }
-            env = SharedMarketTrainingEnv(learner_index, paths)
+            env = SharedMarketTrainingEnv(learner_index, paths, seed=5000 + learner_index)
             source_model = current_model_path(learner_index)
             print(
                 f"Training Agent {learner_index + 1} in a shared market; "
